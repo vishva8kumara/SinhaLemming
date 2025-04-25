@@ -1,10 +1,15 @@
 # Sinhala Lemmatizer - Seq2Seq (PyTorch)
 import torch
 import torch.nn as nn
+import torch.onnx
 from torch.utils.data import Dataset, DataLoader
 import random
 import json
 
+# Device
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+# Load mappings
 with open('input.json', 'r', encoding='utf-8') as f:
     data = json.load(f)
 
@@ -25,7 +30,7 @@ class LemmaDataset(Dataset):
         self.pairs = pairs
 
     def encode(self, word):
-        return [char2idx.get(c, 0) for c in word] + [0] * (MAX_LEN - len(word))
+        return [char2idx.get(c, char2idx['?']) for c in word] + [0] * (MAX_LEN - len(word))
 
     def __getitem__(self, idx):
         x, y = self.pairs[idx]
@@ -50,33 +55,90 @@ class LemmaModel(nn.Module):
         out, _ = self.decoder(y, (h, c))
         return self.fc(out)
 
+# Validation
+def validate(model, dataloader, criterion):
+    model.eval()
+    total_loss = 0
+    with torch.no_grad():
+        for src, tgt in dataloader:
+            src, tgt = src.to(device), tgt.to(device)
+            output = model(src, tgt[:, :-1])
+            loss = criterion(output.view(-1, vocab_size), tgt[:, 1:].reshape(-1))
+            total_loss += loss.item()
+    return total_loss / len(dataloader)
+
 # Training Loop
-def train(model, dataloader, epochs=200):
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.0025, weight_decay=1e-5)
+def train(model, train_loader, val_loader, epochs=200, patience=10):
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.005, weight_decay=1e-5)
     criterion = nn.CrossEntropyLoss(ignore_index=0)
-    lowest_loss = 10000
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5)
+    lowest_val_loss = float('inf')
+    patience_counter = 0
 
     for epoch in range(epochs):
         model.train()
-        total_loss = 0
-        for src, tgt in dataloader:
+        total_train_loss = 0
+        for src, tgt in train_loader:
+            src, tgt = src.to(device), tgt.to(device)
             output = model(src, tgt[:, :-1])
             loss = criterion(output.view(-1, vocab_size), tgt[:, 1:].reshape(-1))
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-            total_loss += loss.item()
-        if True: #epoch % 10 == 0:
-            print(f"Epoch {epoch}, Loss: {total_loss:.4f}")
-            if lowest_loss > total_loss:
-                torch.save(model.state_dict(), 'sinhalemming.pth')
-                lowest_loss = total_loss
+            total_train_loss += loss.item()
+        
+        val_loss = validate(model, val_loader, criterion)
+        print(f"Epoch {epoch}, Train Loss: {total_train_loss:.4f}, Val Loss: {val_loss:.4f}")
+        
+        scheduler.step(val_loss)
+        if val_loss < lowest_val_loss:
+            lowest_val_loss = val_loss
+            torch.save(model.state_dict(), 'sinhalemming.pth')
+            patience_counter = 0
+        else:
+            patience_counter += 1
+            if patience_counter >= patience:
+                print("Early stopping triggered")
+                break
 
-# Run Everything
-dataset = LemmaDataset(data_pairs)
-dataloader = DataLoader(dataset, batch_size=34, shuffle=True)
+# Export to ONNX
+def export_to_onnx(model, dummy_input_x, dummy_input_y, h0, c0, file_path='sinhalemming.onnx'):
+    model.eval()
+    torch.onnx.export(
+        model,
+        (dummy_input_x, dummy_input_y, h0, c0),
+        file_path,
+        export_params=True,
+        opset_version=11,
+        do_constant_folding=True,
+        input_names=['input_x', 'input_y', 'h0', 'c0'],
+        output_names=['output'],
+        dynamic_axes={'input_x': {0: 'batch_size'}, 'input_y': {0: 'batch_size'}, 'h0': {1: 'batch_size'}, 'c0': {1: 'batch_size'}, 'output': {0: 'batch_size'}}
+    )
+    print(f"Model exported to {file_path}")
 
-model = LemmaModel()
-train(model, dataloader)
+# Main
+if __name__ == "__main__":
+    # Split Data
+    random.shuffle(data_pairs)
+    train_size = int(0.8 * len(data_pairs))
+    train_pairs, val_pairs = data_pairs[:train_size], data_pairs[train_size:]
+    
+    # Create Datasets and Dataloaders
+    train_dataset = LemmaDataset(train_pairs)
+    val_dataset = LemmaDataset(val_pairs)
+    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
+    
+    # Initialize and Train Model
+    model = LemmaModel().to(device)
+    train(model, train_loader, val_loader)
+    
+    # Export to ONNX
+    #dummy_input_x = torch.zeros(1, MAX_LEN, dtype=torch.long).to(device)
+    #dummy_input_y = torch.zeros(1, MAX_LEN, dtype=torch.long).to(device)
+    #h0 = torch.zeros(2, 1, 128).to(device)  # 2 layers, batch_size=1, hidden_size=128
+    #c0 = torch.zeros(2, 1, 128).to(device)
+    #export_to_onnx(model, dummy_input_x, dummy_input_y, h0, c0)
 
 print('Completed')

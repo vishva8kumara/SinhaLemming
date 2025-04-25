@@ -13,6 +13,7 @@ async function analyze() {
 			const stem = line.shift();
 			output[ stem ] = '<'+stem+'>';
 			for (let wrd of line)
+				if (wrd != stem)
 				output[ wrd ] = '<'+stem+'>';
 		}
 	}
