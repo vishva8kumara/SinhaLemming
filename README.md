@@ -85,17 +85,6 @@ Under the following terms:
 
 See the [full license](https://creativecommons.org/licenses/by/4.0/) for details.
 
-## Contributing
-Contributions are welcome! Please:
-1. Fork the repository.
-2. Create a feature branch (`git checkout -b feature/your-feature`).
-3. Commit your changes (`git commit -m 'Add your feature'`).
-4. Push to the branch (`git push origin feature/your-feature`).
-5. Open a pull request.
-
-## Contact
-For questions or suggestions, open an issue on GitHub or contact [your-email@example.com].
-
 ## Acknowledgments
 - Built with [PyTorch](https://pytorch.org/).
 - Inspired by Seq2Seq models for natural language processing.
