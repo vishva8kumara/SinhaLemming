@@ -1,8 +1,12 @@
 
-import json
-import torch
+from flask import Flask, Response
 from sinhalemming import Encoder, Attention, Decoder, Seq2Seq
+import urllib.parse
+import json
 
+app = Flask(__name__)
+
+# Device configuration
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # Load mappings
@@ -94,11 +98,12 @@ model.load_state_dict(torch.load("sinhalemming.pth", map_location=device))
 model.to(device)
 model.eval()
 
-# Predict
+# Prediction function
 def predict(model, word, max_len=MAX_LEN):
     model.eval()
     with torch.no_grad():
-        encoded = [char2idx.get(c, char2idx['?']) for c in word] + [0] * (max_len - len(word))# + 3
+        # Encode input word
+        encoded = [char2idx.get(c, char2idx['?']) for c in word] + [0] * (max_len - len(word))
         src = torch.tensor([encoded], dtype=torch.long).to(device)
         encoder_outputs, (hidden, cell) = model.encoder(src)
 
@@ -116,11 +121,16 @@ def predict(model, word, max_len=MAX_LEN):
 
         return ''.join(decoded)
 
-# Sample prediction
-test_words = ["අක්මාවේ", "අගයනවා", "අක්‍රමිකතාව", "අක්‍රමිකතාවයන්", "අගයෙන්", "අගමැතිගෙන්", "අක්ෂරය", "තත්වාකාරයෙන්",
-    "තත්වාකාරය", "තරුණයෙකුගේ", "ඔලෙයොරෙසින්", "ඔලෙයොරෙසින", "ඕසෝනගෝලය", "ඕසෝනගෝලයේ", "කඩිනම්ගතිය",
-    "අඟහරුවාදා", "ශුෂ්කාක්ෂිරෝගය", "අජටාකාශවිද්‍යාව", "කමිටුවේදීයි", "කමිටුවක්"]
+# Flask endpoint
+@app.route('/<path:word>')
+def predict_endpoint(word):
+    # Decode URL-encoded word
+    decoded_word = urllib.parse.unquote(word)
+    try:
+        result = predict(model, '<'+decoded_word)
+        return Response(result, mimetype='text/plain; charset=utf-8')
+    except Exception as e:
+        return Response(f"Error: {str(e)}", status=500, mimetype='text/plain; charset=utf-8')
 
-print("Starting Predict")
-for w in test_words:
-    print(f"{w} → {predict(model, '<'+w)}")
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000)
