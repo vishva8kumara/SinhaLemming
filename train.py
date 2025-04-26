@@ -44,8 +44,8 @@ class LemmaModel(nn.Module):
     def __init__(self):
         super().__init__()
         self.embedding = nn.Embedding(vocab_size, 64)
-        self.encoder = nn.LSTM(64, 128, batch_first=True, num_layers=2, dropout=0.2)
-        self.decoder = nn.LSTM(64, 128, batch_first=True, num_layers=2, dropout=0.2)
+        self.encoder = nn.LSTM(64, 128, batch_first=True, num_layers=3, dropout=0.2)
+        self.decoder = nn.LSTM(64, 128, batch_first=True, num_layers=3, dropout=0.2)
         self.fc = nn.Linear(128, vocab_size)
 
     def forward(self, x, y):
@@ -86,10 +86,10 @@ def train(model, train_loader, val_loader, epochs=200, patience=10):
             loss.backward()
             optimizer.step()
             total_train_loss += loss.item()
-        
+
         val_loss = validate(model, val_loader, criterion)
         print(f"Epoch {epoch}, Train Loss: {total_train_loss:.4f}, Val Loss: {val_loss:.4f}")
-        
+
         scheduler.step(val_loss)
         if val_loss < lowest_val_loss:
             lowest_val_loss = val_loss
@@ -101,44 +101,21 @@ def train(model, train_loader, val_loader, epochs=200, patience=10):
                 print("Early stopping triggered")
                 break
 
-# Export to ONNX
-def export_to_onnx(model, dummy_input_x, dummy_input_y, h0, c0, file_path='sinhalemming.onnx'):
-    model.eval()
-    torch.onnx.export(
-        model,
-        (dummy_input_x, dummy_input_y, h0, c0),
-        file_path,
-        export_params=True,
-        opset_version=11,
-        do_constant_folding=True,
-        input_names=['input_x', 'input_y', 'h0', 'c0'],
-        output_names=['output'],
-        dynamic_axes={'input_x': {0: 'batch_size'}, 'input_y': {0: 'batch_size'}, 'h0': {1: 'batch_size'}, 'c0': {1: 'batch_size'}, 'output': {0: 'batch_size'}}
-    )
-    print(f"Model exported to {file_path}")
-
 # Main
 if __name__ == "__main__":
     # Split Data
     random.shuffle(data_pairs)
     train_size = int(0.8 * len(data_pairs))
     train_pairs, val_pairs = data_pairs[:train_size], data_pairs[train_size:]
-    
+
     # Create Datasets and Dataloaders
     train_dataset = LemmaDataset(train_pairs)
     val_dataset = LemmaDataset(val_pairs)
-    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
-    
+    train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=64, shuffle=False)
+
     # Initialize and Train Model
     model = LemmaModel().to(device)
     train(model, train_loader, val_loader)
-    
-    # Export to ONNX
-    #dummy_input_x = torch.zeros(1, MAX_LEN, dtype=torch.long).to(device)
-    #dummy_input_y = torch.zeros(1, MAX_LEN, dtype=torch.long).to(device)
-    #h0 = torch.zeros(2, 1, 128).to(device)  # 2 layers, batch_size=1, hidden_size=128
-    #c0 = torch.zeros(2, 1, 128).to(device)
-    #export_to_onnx(model, dummy_input_x, dummy_input_y, h0, c0)
 
 print('Completed')

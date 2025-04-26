@@ -17,8 +17,8 @@ class LemmaModel(nn.Module):
     def __init__(self):
         super().__init__()
         self.embedding = nn.Embedding(vocab_size, 64)
-        self.encoder = nn.LSTM(64, 128, batch_first=True, num_layers=2, dropout=0.2)
-        self.decoder = nn.LSTM(64, 128, batch_first=True, num_layers=2, dropout=0.2)
+        self.encoder = nn.LSTM(64, 128, batch_first=True, num_layers=3, dropout=0.2)
+        self.decoder = nn.LSTM(64, 128, batch_first=True, num_layers=3, dropout=0.2)
         self.fc = nn.Linear(128, vocab_size)
 
     def forward(self, x, y):
@@ -34,16 +34,6 @@ model.load_state_dict(torch.load("sinhalemming.pth", map_location=device))
 model.eval()
 
 # Inference
-def predict_one(model, word):
-    model.eval()
-    with torch.no_grad():
-        x = torch.tensor([[char2idx.get(c, 0) for c in word] + [0]*(MAX_LEN - len(word))])
-        y = torch.zeros((1, MAX_LEN), dtype=torch.long)
-        output = model(x, y)
-        pred = output.argmax(2).squeeze().tolist()
-        chars = [idx2char[i] for i in pred if i != 0]
-        return ''.join(chars)
-
 def predict(model, word, max_len=MAX_LEN):
     model.eval()
     with torch.no_grad():
@@ -67,7 +57,6 @@ def predict(model, word, max_len=MAX_LEN):
             pred = torch.argmax(logits, dim=-1).item()
             
             if pred == char2idx['>']:  # Stop at '>'
-                #decoded.append(idx2char[pred])
                 break
             decoded.append(idx2char[pred])
             output.append(pred)
