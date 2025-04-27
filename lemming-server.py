@@ -2,6 +2,7 @@
 from flask import Flask, Response
 from sinhalemming import Encoder, Attention, Decoder, Seq2Seq
 import urllib.parse
+import torch
 import json
 
 app = Flask(__name__)
@@ -54,7 +55,7 @@ def predict_endpoint(word):
     decoded_word = urllib.parse.unquote(word)
     try:
         result = predict(model, '<'+decoded_word)
-        return Response(result, mimetype='text/plain; charset=utf-8')
+        return Response(decoded_word[:2] + result, mimetype='text/plain; charset=utf-8')
     except Exception as e:
         return Response(f"Error: {str(e)}", status=500, mimetype='text/plain; charset=utf-8')
 

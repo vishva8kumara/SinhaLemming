@@ -49,4 +49,4 @@ test_words = ["අක්මාවේ", "අගයනවා", "අක්‍රම
 
 print("Starting Predict")
 for w in test_words:
-    print(f"{w} → {predict(model, '<'+w)}")
+    print(f"{w} → {w[:2] + predict(model, '<'+w)}")

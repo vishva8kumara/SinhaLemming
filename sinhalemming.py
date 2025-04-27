@@ -20,20 +20,16 @@ class Encoder(nn.Module):
 class Attention(nn.Module):
     def __init__(self, hidden_size):
         super().__init__()
-        self.attn = nn.Linear(hidden_size * 2, hidden_size)
-        self.v = nn.Parameter(torch.rand(hidden_size))
+        self.scale = 32 #hidden_size ** 0.5  # scaling factor to soften attention
 
     def forward(self, hidden, encoder_outputs):
-        batch_size = encoder_outputs.size(0)
-        seq_len = encoder_outputs.size(1)
-
-        hidden = hidden.unsqueeze(1).repeat(1, seq_len, 1)
-        energy = torch.tanh(self.attn(torch.cat((hidden, encoder_outputs), dim=2)))
-        energy = energy.transpose(1, 2)
-        v = self.v.repeat(batch_size, 1).unsqueeze(1)
-        attn_weights = torch.bmm(v, energy).squeeze(1)
-
-        return torch.softmax(attn_weights, dim=1)
+        # hidden: (batch, hidden)
+        # encoder_outputs: (batch, seq_len, hidden)
+        hidden = hidden.unsqueeze(1)  # (batch, 1, hidden)
+        attn_scores = torch.bmm(hidden, encoder_outputs.transpose(1, 2)).squeeze(1)  # (batch, seq_len)
+        attn_scores = attn_scores / self.scale  # soften by scale
+        attn_weights = torch.softmax(attn_scores, dim=1)  # (batch, seq_len)
+        return attn_weights
 
 # Decoder
 class Decoder(nn.Module):
@@ -41,17 +37,20 @@ class Decoder(nn.Module):
         super().__init__()
         self.embedding = nn.Embedding(vocab_size, embed_size)
         self.attention = Attention(hidden_size)
-        self.lstm = nn.LSTM(hidden_size + embed_size, hidden_size, num_layers=num_layers, batch_first=True, dropout=0.25)
+        self.lstm = nn.LSTM(hidden_size + embed_size, hidden_size, num_layers=num_layers, batch_first=True, dropout=0.25)#, bidirectional=False
         self.fc = nn.Linear(hidden_size, vocab_size)
 
     def forward(self, input_token, hidden, cell, encoder_outputs):
-        embedded = self.embedding(input_token).unsqueeze(1)
-        attn_weights = self.attention(hidden[-1], encoder_outputs).unsqueeze(1)
-        context = torch.bmm(attn_weights, encoder_outputs)
-        rnn_input = torch.cat((embedded, context), dim=2)
+        embedded = self.embedding(input_token).unsqueeze(1)  # (batch, 1, embed_size)
+
+        attn_weights = self.attention(hidden[-1], encoder_outputs).unsqueeze(1)  # (batch, 1, seq_len)
+        context = torch.bmm(attn_weights, encoder_outputs)  # (batch, 1, hidden_size)
+
+        rnn_input = torch.cat((embedded, context), dim=2)  # (batch, 1, embed + hidden)
 
         output, (hidden, cell) = self.lstm(rnn_input, (hidden, cell))
-        output = self.fc(output.squeeze(1))
+        output = self.fc(output.squeeze(1))  # (batch, vocab_size)
+
         return output, hidden, cell
 
 # Full Model
